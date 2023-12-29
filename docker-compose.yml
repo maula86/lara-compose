@@ -1,0 +1,122 @@
+version: "3.8"
+services:
+  # apache:
+  #   container_name: msapi-apache
+  #   build: ./docker/apache
+  #   image: msapi-apache
+  #   links:
+  #     - php
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     - php
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./logs/apache:/var/log/apache2
+  #     - ./src/msapi:/usr/local/apache2/htdocs/msapi
+  #   networks:
+  #     - msnetwork
+  
+  nginx:
+    container_name: msapi-nginx
+    build: ./docker/nginx
+    command: nginx -g "daemon off;"
+    image: msapi-nginx
+    links:
+      - php
+    depends_on:
+      - php
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./logs/nginx:/var/log/nginx
+      - ./src/msapi:/var/www/html/msapi
+    networks:
+      - msnetwork
+
+  php:
+    container_name: msapi-php
+    build: 
+      args:
+        user: msapi
+        uid: 1000
+      context: ./docker/php
+      dockerfile: Dockerfile
+    image: msapi-php
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    depends_on:
+      - mysql
+      - redis
+    volumes:
+      - ./src/msapi:/var/www/html/msapi
+    # working_dir: /usr/local/apache2/htdocs/msapi
+    working_dir: /var/www/html/msapi
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    # environment:
+    #     - DATABASE_URL='mysql://ms:**MediaDBScanter321@157.245.59.127:3306/edi-testing-docker'
+    networks:
+      - msnetwork
+
+  queue:
+    container_name: msapi-queue
+    image: msapi-php
+    restart: unless-stopped
+    command: bash -c 'echo "Running the queue..." && php artisan queue:work --verbose --tries=3 --timeout=90'
+    # command: bash -c 'nohup php artisan queue:work --daemon &'
+    # command: ["bash", "-c", "php artisan queue:work --tries=3"]
+    volumes:
+      - ./src/msapi:/usr/local/apache2/htdocs/msapi
+    working_dir: /usr/local/apache2/htdocs/msapi
+    networks:
+      - msnetwork
+
+  mysql:
+    image: mysql:8.0.35
+    # image: mysql/mysql-server:8.0
+    container_name: msapi-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 'adminadmin'
+      MYSQL_DATABASE: msapi
+      MYSQL_USER: edi
+      MYSQL_PASSWORD: 'ediadmin'
+      TZ: 'Asia/Jakarta'
+    command: ['mysqld', '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci','--default-time-zone=+07:00']
+    ports:
+      - "3306:3306"
+    volumes:
+      - dbmsapi:/var/lib/mysql
+      - './docker/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
+    networks:
+      - msnetwork
+
+  redis:
+    image: 'redis:alpine'
+    container_name: msapi-redis
+    restart: always
+    ports:
+      - '14022:6379'
+    volumes:
+      - cache:/data
+    networks:
+      - msnetwork
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      retries: 3
+      timeout: 5s
+
+networks:
+  msnetwork:
+    driver: bridge
+
+volumes:
+  dbmsapi:
+    driver: local
+  cache:
+    driver: local
